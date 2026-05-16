@@ -1,0 +1,22 @@
+# Audio datasets - demasiado grandes para git
+datasets/*/raw/
+datasets/*/audio/
+datasets/**/*.mp3
+datasets/**/*.m4a
+datasets/**/*.flac
+
+# Modelos entrenados - demasiado grandes para git
+modelos/*.pth
+modelos/*.index
+
+# Audiolibros generados
+audiobooks/
+
+# App - ficheros de entrada/salida
+audiobook-app/ebooks/
+audiobook-app/audiobooks/
+
+# Sistema
+.DS_Store
+__pycache__/
+*.pyc
