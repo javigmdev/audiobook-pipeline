@@ -1,65 +1,66 @@
-# Guía: Crear modelos de voz con RVC y generar audiolibros
+# Audiobook Pipeline
 
-## Qué es esto
+Pipeline para generar audiolibros en castellano con la voz de cualquier narrador. El proceso tiene dos fases:
 
-Pipeline para generar audiolibros en castellano con la voz de cualquier locutor. El proceso tiene dos fases:
-
-1. **Entrenar el modelo de voz** — aprender cómo suena una voz concreta (se hace en la nube, una vez por locutor)
+1. **Entrenar el modelo de voz** — aprender cómo suena una voz concreta (se hace en la nube, una vez por narrador)
 2. **Generar el audiolibro** — convertir epub a audio con esa voz (se hace en local, sin límites)
 
 ---
 
-## Herramientas
+## Herramientas y por qué las usamos
 
-### Google Colab
-Servicio gratuito de Google que te da acceso a un ordenador en la nube con GPU (tarjeta gráfica potente). Lo usamos solo para entrenar el modelo porque en local tardaría días — en Colab tarda 30-40 minutos.
-- URL: `colab.research.google.com`
+### Google Colab + Applio — solo para entrenar
+Entrenar un modelo RVC requiere GPU. En un Mac M1 Pro, el MPS (GPU Metal) de PyTorch tiene muchas operaciones no soportadas que caen al CPU, haciendo el entrenamiento RVC ~180x más lento que en una GPU real — días en vez de minutos.
+
+Google Colab proporciona una GPU Tesla T4 gratuita en la nube. Applio es la herramienta con interfaz web que corre sobre Colab para gestionar el proceso de entrenamiento. Juntos entrenan el modelo en 30-40 minutos.
+
+Una vez terminado el entrenamiento, el archivo `.pth` se descarga y Colab ya no se necesita más para esa voz.
+
+- URL de Colab: `colab.research.google.com`
 - GPU gratuita: Tesla T4 (14 GB)
-- Las sesiones duran unas horas — hay que descargar el modelo antes de que expire
-
-### Applio
-Herramienta con interfaz web para entrenar modelos RVC. El resultado es un fichero `.pth` que contiene la "huella" de una voz. Solo se usa en Colab para entrenar — una vez tienes el `.pth` no vuelves a necesitarlo.
-- GitHub: `github.com/IAHispano/Applio`
-- Tiene notebook oficial para Google Colab
+- Las sesiones expiran tras unas horas de inactividad — activa la sincronización con Google Drive para guardar el modelo automáticamente
+- Si el límite de GPU gratuito está agotado, espera un rato y vuelve a intentarlo
 
 ### RVC (Retrieval-based Voice Conversion)
-Tecnología de IA que convierte el timbre de una voz en otra. Gratuita, open source, corre en local.
-- **Entrenamiento**: necesita 10-20 minutos de audio limpio + Colab (~30-40 min)
-- **Inferencia** (usar el modelo): rápida en local, sin límites, sin internet
+Tecnología de IA que convierte el timbre de una voz a otra. Gratuito y open source.
+- **Entrenamiento** (en Colab): aprende una voz a partir de 10-20 min de audio limpio, produce un archivo `.pth`
+- **Inferencia** (en local): convierte cualquier audio para que suene como esa voz — rápido en CPU, sin límites, sin internet
 
-### Piper TTS
-Motor de síntesis de voz local, gratuito, open source. Genera audio con acento castellano nativo a partir de texto. No tiene límites ni necesita internet.
+### Piper TTS — para el acento castellano
+Otros motores TTS como XTTSv2 clonan el timbre de voz pero generan acento latinoamericano independientemente de la voz de referencia. Piper TTS tiene un modelo nativo de español de España (`es_ES`) que garantiza el acento correcto.
+
+Piper genera el audio base en castellano y luego RVC lo transforma para que suene como el narrador objetivo.
 
 ---
 
 ## Fase 1: Preparar el dataset de audio
 
-### Conseguir el audio
+### Obtener el audio
 Busca grabaciones donde la persona hable sola (sin música ni otras voces). Buenas fuentes:
 - Muestras de audiolibros en Audible
 - Entrevistas en YouTube (descargar con `yt-dlp`)
 - Podcasts, documentales, doblajes
 
-Para capturar audio del sistema en Mac sin ruido de micrófono instalar **BlackHole**:
+Para capturar audio del sistema en Mac sin ruido de micrófono, instala **BlackHole**:
 ```bash
 brew install blackhole-2ch
 ```
-- En Configuración de Sonido → seleccionar BlackHole como salida
+- Preferencias del Sistema → Sonido → seleccionar BlackHole como salida
 - Grabar con QuickTime usando BlackHole como entrada
 - Captura el audio digital directamente, sin pasar por el micrófono
 
 ### Extraer audio de vídeos
 ```bash
-# Instalar ffmpeg si no está
+# Instalar ffmpeg si no está disponible
 brew install ffmpeg
 
 # Extraer audio como WAV mono (formato para RVC)
 ffmpeg -i video.mp4 -vn -acodec pcm_s16le -ar 44100 -ac 1 audio.wav
 ```
 
-### Procesar varios vídeos de una vez
+### Procesar varios vídeos a la vez
 ```bash
-# Desde la carpeta con los vídeos
+# Desde la carpeta que contiene los vídeos
 mkdir -p ../audio
 
 for f in *; do
@@ -67,112 +68,133 @@ for f in *; do
   ffmpeg -y -i "$f" -vn -acodec pcm_s16le -ar 44100 -ac 1 "../audio/${name}.wav"
 done
 
-# Concatenar todos en un solo fichero
+# Concatenar todos en un único archivo
 cd ../audio
 ls *.wav | sort | awk '{print "file \047" $0 "\047"}' > concat.txt
-ffmpeg -y -f concat -safe 0 -i concat.txt -c copy ../dataset.wav
+ffmpeg -y -f concat -safe 0 -i concat.txt -c copy ../es-male-01.wav
 rm concat.txt
 ```
 
-**Resultado**: un único `dataset.wav` con todo el audio concatenado
+**Resultado**: un único `es-male-01.wav` con todo el audio concatenado
 
 ### Requisitos del dataset
 - Mínimo 5-10 minutos (10-20 recomendado)
 - Audio limpio: sin música, sin ruido de fondo, sin otras voces
-- Variedad: mejor varios audios distintos que uno solo repetido
+- Variedad: mejor usar varias grabaciones distintas que una sola repetida
 - Formato: WAV, mono, 44100 Hz
+
+### Convención de nombres
+```
+es-male-01    → español, masculino, primero
+es-female-01  → español, femenino, primero
+en-male-01    → inglés, masculino, primero
+```
 
 ---
 
 ## Fase 2: Entrenar el modelo en Google Colab
 
-### Abrir Applio en Colab
+### Abrir el notebook
 1. Ir a `colab.research.google.com`
-2. Archivo → Abrir notebook → GitHub → buscar `IAHispano/Applio`
-3. Abrir `assets/Applio.ipynb`
-4. **Cambiar runtime a GPU**: Entorno de ejecución → Cambiar tipo → T4 GPU
+2. Archivo → Abrir notebook → GitHub
+3. Buscar `javigmdev/audiobook-pipeline`
+4. Abrir `colab/Applio.ipynb`
+5. **Cambiar a runtime con GPU**: Runtime → Cambiar tipo de entorno de ejecución → T4 GPU
 
 ### Ejecutar las celdas en orden
 1. **Setup Runtime Environment** — prepara el entorno
 2. **Install Applio** (2 celdas ocultas) — instala todo (~2-3 min)
-3. Saltar **Sync with Google Drive**
+3. **Sync with Google Drive** — aceptar el permiso. Guarda el modelo automáticamente en Google Drive al terminar el entrenamiento
 4. **Start server** (method: gradio) — lanza la interfaz web
 
 ### Subir el dataset
-1. En el panel izquierdo de Colab pulsar el **icono de carpeta**
+1. En el panel izquierdo de Colab hacer clic en el **icono de carpeta**
 2. Navegar a `Applio → assets → datasets`
-3. Crear una carpeta con el nombre del locutor (ej: `jordi`)
-4. Arrastrar el `dataset.wav` dentro de esa carpeta
+3. Crear una carpeta con el nombre de la voz (ej. `es-male-01`)
+4. Arrastrar el archivo `es-male-01.wav` dentro de esa carpeta
 
 ### Configurar y entrenar en Applio
-Abrir el enlace público que aparece tras ejecutar Start server e ir a la pestaña **Training**:
+Abrir el enlace público que aparece al ejecutar Start server e ir a la pestaña **Training**:
 
 **Model Settings:**
-- Model Name: nombre del locutor (ej: `jordi`)
+- Model Name: nombre de la voz (ej. `es-male-01`)
 - Sampling Rate: `40000`
 - Vocoder: `HiFi-GAN`
 
 **Preprocess:**
-- Dataset Path: `/content/Applio/assets/datasets/nombre`
-- Pulsar **Preprocess Dataset** → esperar "preprocessed successfully"
+- Dataset Path: `/content/Applio/assets/datasets/es-male-01` — esta es la **carpeta**, no el archivo wav
+- Clic en **Preprocess Dataset** → esperar "preprocessed successfully"
 
 **Extract:**
 - Pitch: `rmvpe`
 - Embedder: `contentvec`
-- Pulsar **Extract Features** → esperar "extracted successfully"
+- Clic en **Extract Features** → esperar "extracted successfully"
 
 **Training:**
 - Batch Size: `8`
 - Total Epoch: `200`
 - Save Every Epoch: `10`
 - Marcar **I agree to the terms of use**
-- Pulsar **Start Training** → esperar ~30-40 minutos
+- Clic en **Start Training** → esperar ~30-40 minutos
 
 ### Descargar el modelo
 Cuando aparezca "trained successfully":
-1. En Applio ir a **Export Model**
-2. Descargar `nombre.pth` y `nombre.index`
-3. Guardar en `ebook2audio/modelos/`
+1. En Applio bajar hasta **Export Model**
+2. Clic en **Refresh** y seleccionar el modelo en los desplegables **Pth file** e **Index File**
+3. Descargar ambos archivos
+4. Guardarlos en `modelos/` como `es-male-01.pth` y `es-male-01.index`
 
-**¡Importante!** Descargar antes de que expire la sesión de Colab (~12h máx en gratuito)
+**Si la sesión expira:** el modelo está guardado en Google Drive en `ApplioExported/` — descargarlo desde ahí.
 
 ---
 
 ## Fase 3: Generar audiolibros
 
-Proyecto Docker con interfaz web donde solo tienes que:
+Proyecto Docker con interfaz web donde solo hay que:
 1. Subir el epub
-2. Seleccionar la voz (el `.pth` del locutor)
-3. Pulsar convertir
-4. Descargar el M4B
+2. Seleccionar la voz (el `.pth` del narrador)
+3. Seleccionar el formato de salida
+4. Dar a convertir
+5. Descargar el archivo
 
-Por dentro el pipeline es automático:
+El pipeline corre automáticamente:
 ```
-EPUB → texto → Piper TTS (castellano) → RVC (nombre.pth) → M4B
+EPUB → texto → Piper TTS (castellano) → RVC (nombre.pth) → M4B / MP3
 ```
 
-- **Piper TTS**: genera audio en castellano, gratuito, local, sin límites
-- **RVC**: convierte el audio para que suene con la voz del locutor
-- **M4B**: formato de audiolibro compatible con iPhone y Apple Books, con capítulos y marcadores para continuar donde lo dejaste
-- **Sin límites de páginas**, sin internet, sin coste
+**Formatos de salida:**
+- **M4B** — audiolibro con capítulos, para Apple Books e iPhone. Guarda la posición de reproducción
+- **MP3** — audio plano, compatible con cualquier dispositivo
+
+**Características:**
+- Piper TTS: genera audio en castellano, gratuito, local, sin límites
+- RVC: convierte el audio para que suene como el narrador entrenado
+- Sin límite de páginas, sin internet, sin coste
 
 ---
 
-## Estructura de carpetas del proyecto
+## Estructura del proyecto
 
 ```
-ebook2audio/
-├── modelos/                  → .pth y .index de cada locutor entrenado
-│   ├── jordi.pth
-│   ├── jordi.index
-│   └── ...
-├── datasets/                 → datasets de entrenamiento
-│   └── nombre-locutor/
-│       ├── raw/              → vídeos originales
-│       ├── audio/            → WAV individuales extraídos
-│       └── dataset.wav       → dataset completo para entrenamiento
-└── audiobook-app/            → proyecto Docker (fase 3, pendiente)
+audiobook-pipeline/
+├── .gitignore
+├── .gitattributes              → config Git LFS para archivos wav
+├── README.md
+├── colab/
+│   └── Applio.ipynb            → notebook para entrenar en Colab
+├── datasets/
+│   └── es-male-01/             → wav rastreado via Git LFS, resto ignorado
+│       ├── raw/                → vídeos originales (ignorado)
+│       ├── audio/              → WAVs individuales extraídos (ignorado)
+│       └── es-male-01.wav      → dataset completo (Git LFS)
+├── modelos/                    → ignorado por git (archivos .pth)
+│   ├── es-male-01.pth
+│   └── es-male-01.index
+└── audiobook-app/              → pendiente (Fase 3)
     ├── docker-compose.yml
-    ├── ebooks/
-    └── audiobooks/
+    ├── Dockerfile
+    ├── app.py
+    ├── requirements.txt
+    ├── ebooks/                 → ignorado por git
+    └── audiobooks/             → ignorado por git
 ```
