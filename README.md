@@ -148,28 +148,52 @@ Cuando aparezca "trained successfully":
 
 ---
 
-## Fase 3: Generar audiolibros
+## Fase 3: Generar audiolibros (en Colab)
 
-Proyecto Docker con interfaz web donde solo hay que:
-1. Subir el epub
-2. Seleccionar la voz (el `.pth` del narrador)
-3. Seleccionar el formato de salida
-4. Dar a convertir
-5. Descargar el archivo
+La inferencia se hace en Google Colab por las razones explicadas más abajo. Es un único notebook que toma un epub y devuelve un M4B con capítulos.
 
-El pipeline corre automáticamente:
+### Requisitos previos
+- Los archivos `es-male-01.pth` y `es-male-01.index` subidos a Google Drive en `MyDrive/audiobook-models/`
+- Un epub para convertir
+
+### Abrir el notebook
+1. Ir a `colab.research.google.com`
+2. Archivo → Abrir notebook → GitHub
+3. Buscar `javigmdev/audiobook-pipeline`
+4. Abrir `colab/Audiobook.ipynb`
+5. **Cambiar a runtime con GPU**: Runtime → Cambiar tipo de entorno de ejecución → T4 GPU
+
+### Ejecutar
+1. **Celda 1 (Instalar dependencias)** — ~2-3 min
+2. **Celda 2 (Descargar modelos)** — ~1 min (HuBERT, RMVPE, FCPE, contentvec, Piper)
+3. **Celda 3 (Conectar Google Drive)** — acepta el permiso
+4. **Subir el epub** al panel de archivos de Colab (icono carpeta a la izquierda) como `libro.epub`
+5. **Celda 4 (Configurar rutas)** — verifica que todo está en su sitio
+6. **Celda 5 (Generar)** — procesa cada capítulo (Piper → RVC con tu modelo)
+7. **Celda 6 (Descargar)** — descarga el M4B (también queda guardado en tu Drive)
+
+El pipeline:
 ```
-EPUB → texto → Piper TTS (castellano) → RVC (nombre.pth) → M4B / MP3
+EPUB → texto → Piper TTS (castellano) → RVC (es-male-01.pth) → M4B con capítulos
 ```
 
-**Formatos de salida:**
-- **M4B** — audiolibro con capítulos, para Apple Books e iPhone. Guarda la posición de reproducción
-- **MP3** — audio plano, compatible con cualquier dispositivo
+**M4B**: audiolibro con capítulos para Apple Books e iPhone. Guarda la posición de reproducción.
 
-**Características:**
-- Piper TTS: genera audio en castellano, gratuito, local, sin límites
-- RVC: convierte el audio para que suene como el narrador entrenado
-- Sin límite de páginas, sin internet, sin coste
+### Por qué Colab y no local
+
+Se intentaron dos enfoques locales (ambos descartados):
+
+**Local con virtualenv (Python 3.11, Mac M1 Pro)**
+- Piper TTS funciona bien en CPU.
+- La inferencia RVC con `transformers.HubertModel` produce un **segmentation fault** consistente en Apple Silicon con CPU, tras cargar los pesos del modelo HuBERT.
+- Probado con `NUMBA_DISABLE_JIT=1`, `PYTORCH_ENABLE_MPS_FALLBACK=1` y forzando MPS — el crash persiste. Es un bug conocido de PyTorch en M1 con ciertas arquitecturas de modelo.
+
+**Docker con emulación x86_64 vía Rosetta**
+- Evita el segfault porque corre Linux x86 dentro del contenedor.
+- Pero la emulación QEMU+Rosetta para ML es brutalmente lenta — ~100x más lenta que x86 nativo.
+- Un capítulo tarda más de 6 minutos en convertir; un audiolibro entero sería días de cómputo. Inviable.
+
+**Conclusión**: la inferencia RVC necesita Linux x86 o GPU para ser viable. Colab cumple ambas (Linux + T4 GPU) y es gratuito. Si en el futuro hay acceso a una máquina Linux x86, el código de inferencia que se preparó se puede recuperar del historial de git.
 
 ---
 
@@ -181,20 +205,14 @@ audiobook-pipeline/
 ├── .gitattributes              → config Git LFS para archivos wav
 ├── README.md
 ├── colab/
-│   └── Applio.ipynb            → notebook para entrenar en Colab
+│   ├── Applio.ipynb            → notebook para entrenar la voz (Fase 2)
+│   └── Audiobook.ipynb         → notebook para generar audiolibros (Fase 3)
 ├── datasets/
 │   └── es-male-01/             → wav rastreado via Git LFS, resto ignorado
 │       ├── raw/                → vídeos originales (ignorado)
 │       ├── audio/              → WAVs individuales extraídos (ignorado)
 │       └── es-male-01.wav      → dataset completo (Git LFS)
-├── modelos/                    → ignorado por git (archivos .pth)
-│   ├── es-male-01.pth
-│   └── es-male-01.index
-└── audiobook-app/              → pendiente (Fase 3)
-    ├── docker-compose.yml
-    ├── Dockerfile
-    ├── app.py
-    ├── requirements.txt
-    ├── ebooks/                 → ignorado por git
-    └── audiobooks/             → ignorado por git
+└── modelos/                    → ignorado por git (archivos .pth)
+    ├── es-male-01.pth
+    └── es-male-01.index
 ```
