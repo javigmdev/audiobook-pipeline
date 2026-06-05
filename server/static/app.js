@@ -63,7 +63,7 @@ btn.addEventListener('click', async () => {
 
   let res;
   try {
-    res = await fetch('/convert', { method: 'POST', body: fd });
+    res = await fetch('convert', { method: 'POST', body: fd });
   } catch {
     showNotice('Error de red al conectar con el servidor.', 'err');
     btn.disabled = false;
@@ -77,13 +77,13 @@ btn.addEventListener('click', async () => {
     return;
   }
 
-  const evtSrc = new EventSource(`/status/${data.job_id}`);
+  const evtSrc = new EventSource(`status/${data.job_id}`);
 
   evtSrc.onmessage = e => {
     if (e.data === 'DONE') {
       evtSrc.close();
       logLine('Conversión completada.');
-      dlBtn.href = `/download/${data.job_id}`;
+      dlBtn.href = `download/${data.job_id}`;
       dlBtn.style.display = 'block';
       btn.disabled = false;
     } else if (e.data.startsWith('ERROR:')) {
