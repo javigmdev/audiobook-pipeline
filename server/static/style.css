@@ -202,3 +202,14 @@ select:focus {
   from { opacity: 0; transform: translateY(5px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+@media (prefers-color-scheme: dark) {
+  body        { background-color: #1c1c1e; color: #f5f5f7; }
+  .card       { background: rgba(44, 44, 46, 0.85); border-color: rgba(255, 255, 255, 0.08); }
+  .drop       { background: rgba(30, 30, 32, 0.8); border-color: #3a3a3c; }
+  .drop:hover,
+  .drop.over  { background: rgba(30, 40, 60, 0.6); border-color: #0071e3; }
+  .drop-hint  { color: #aeaeb2; }
+  select      { background: #2c2c2e; border-color: #3a3a3c; color: #f5f5f7; }
+  .btn:disabled { background: #3a3a3c; color: #6e6e73; }
+}
