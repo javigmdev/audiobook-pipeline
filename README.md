@@ -148,52 +148,73 @@ Cuando aparezca "trained successfully":
 
 ---
 
-## Fase 3: Generar audiolibros (en Colab)
+## Fase 3: Generar audiolibros
 
-La inferencia se hace en Google Colab por las razones explicadas más abajo. Es un único notebook que toma un epub y devuelve un M4B con capítulos.
-
-### Requisitos previos
-- Los archivos `es-male-01.pth` y `es-male-01.index` subidos a Google Drive en `MyDrive/audiobook-models/`
-- Un epub para convertir
-
-### Abrir el notebook
-1. Ir a `colab.research.google.com`
-2. Archivo → Abrir notebook → GitHub
-3. Buscar `javigmdev/audiobook-pipeline`
-4. Abrir `colab/Audiobook.ipynb`
-5. **Cambiar a runtime con GPU**: Runtime → Cambiar tipo de entorno de ejecución → T4 GPU
-
-### Ejecutar
-1. **Celda 1 (Instalar dependencias)** — ~2-3 min
-2. **Celda 2 (Descargar modelos)** — ~1 min (HuBERT, RMVPE, FCPE, contentvec, Piper)
-3. **Celda 3 (Conectar Google Drive)** — acepta el permiso
-4. **Subir el epub** al panel de archivos de Colab (icono carpeta a la izquierda) como `libro.epub`
-5. **Celda 4 (Configurar rutas)** — verifica que todo está en su sitio
-6. **Celda 5 (Generar)** — procesa cada capítulo (Piper → RVC con tu modelo)
-7. **Celda 6 (Descargar)** — descarga el M4B (también queda guardado en tu Drive)
-
-El pipeline:
+El pipeline toma un epub y devuelve un M4B con capítulos:
 ```
 EPUB → texto → Piper TTS (castellano) → RVC (es-male-01.pth) → M4B con capítulos
 ```
+**M4B**: formato de audiolibro Apple. Guarda la posición de reproducción y muestra los capítulos en Apple Books/iPhone.
 
-**M4B**: audiolibro con capítulos para Apple Books e iPhone. Guarda la posición de reproducción.
+Hay dos opciones para ejecutarlo:
 
-### Por qué Colab y no local
+---
 
-Se intentaron dos enfoques locales (ambos descartados):
+### Opción A — Servidor local (recomendado)
 
-**Local con virtualenv (Python 3.11, Mac M1 Pro)**
-- Piper TTS funciona bien en CPU.
-- La inferencia RVC con `transformers.HubertModel` produce un **segmentation fault** consistente en Apple Silicon con CPU, tras cargar los pesos del modelo HuBERT.
-- Probado con `NUMBA_DISABLE_JIT=1`, `PYTORCH_ENABLE_MPS_FALLBACK=1` y forzando MPS — el crash persiste. Es un bug conocido de PyTorch en M1 con ciertas arquitecturas de modelo.
+Mini PC Ubuntu con Ryzen 7 5700U. Linux x86_64 nativo: resuelve el segfault de Apple Silicon y elimina la dependencia de Colab.
 
-**Docker con emulación x86_64 vía Rosetta**
-- Evita el segfault porque corre Linux x86 dentro del contenedor.
-- Pero la emulación QEMU+Rosetta para ML es brutalmente lenta — ~100x más lenta que x86 nativo.
-- Un capítulo tarda más de 6 minutos en convertir; un audiolibro entero sería días de cómputo. Inviable.
+#### Puesta en marcha (una sola vez)
 
-**Conclusión**: la inferencia RVC necesita Linux x86 o GPU para ser viable. Colab cumple ambas (Linux + T4 GPU) y es gratuito. Si en el futuro hay acceso a una máquina Linux x86, el código de inferencia que se preparó se puede recuperar del historial de git.
+```bash
+cd server
+bash setup.sh
+
+# Copiar los modelos RVC entrenados
+cp /ruta/a/es-male-01.pth    server/models/es-male-01.pth
+cp /ruta/a/es-male-01.index  server/models/es-male-01.index
+```
+
+#### Uso diario
+
+```bash
+source server/venv/bin/activate
+python server/app.py
+```
+
+Abrir `http://<ip-del-servidor>:5000` desde cualquier navegador de la red local. Arrastra el epub, pulsa Convertir, espera (muestra progreso en tiempo real) y descarga el M4B.
+
+---
+
+### Opción B — Google Colab (fallback)
+
+Útil si el servidor está apagado. Requiere GPU T4 en Colab y los modelos en Google Drive.
+
+#### Requisitos previos
+- Los archivos `es-male-01.pth` y `es-male-01.index` subidos a Google Drive en `MyDrive/audiobook-models/`
+- Un epub para convertir
+
+#### Abrir el notebook
+1. Ir a `colab.research.google.com`
+2. Archivo → Abrir notebook → GitHub → `javigmdev/audiobook-pipeline`
+3. Abrir `colab/Audiobook.ipynb`
+4. **Cambiar a runtime con GPU**: Runtime → Cambiar tipo de entorno de ejecución → T4 GPU
+
+#### Ejecutar
+1. **Celda 1** — instalar dependencias (~2-3 min)
+2. **Celda 2** — descargar modelos auxiliares (~1 min)
+3. **Celda 3** — conectar Google Drive
+4. Subir el epub al panel de archivos de Colab como `libro.epub`
+5. **Celda 4** — verificar rutas
+6. **Celda 5** — generar (procesa capítulo a capítulo)
+7. **Celda 6** — descargar el M4B
+
+---
+
+### Por qué no funciona en Mac
+
+- **Mac M1 con virtualenv**: la inferencia RVC produce segfault consistente en Apple Silicon al cargar el modelo HuBERT. Bug conocido de PyTorch en M1.
+- **Docker x86 en Mac**: evita el segfault pero la emulación QEMU vía Rosetta es ~100x más lenta. Un audiolibro entero tardaría días. Inviable.
 
 ---
 
@@ -206,7 +227,13 @@ audiobook-pipeline/
 ├── README.md
 ├── colab/
 │   ├── Applio.ipynb            → notebook para entrenar la voz (Fase 2)
-│   └── Audiobook.ipynb         → notebook para generar audiolibros (Fase 3)
+│   └── Audiobook.ipynb         → notebook para generar audiolibros (Fase 3, opción Colab)
+├── server/                     → servidor local Flask (Fase 3, opción local)
+│   ├── app.py                  → app web
+│   ├── pipeline.py             → lógica de conversión
+│   ├── setup.sh                → instalación en Ubuntu (ejecutar una sola vez)
+│   ├── requirements.txt
+│   └── templates/index.html
 ├── datasets/
 │   └── es-male-01/             → wav rastreado via Git LFS, resto ignorado
 │       ├── raw/                → vídeos originales (ignorado)
