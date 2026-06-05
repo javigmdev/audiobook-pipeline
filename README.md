@@ -1,220 +1,77 @@
 # Audiobook Pipeline
 
-Pipeline para generar audiolibros en castellano con la voz de cualquier narrador. El proceso tiene dos fases:
+Generar audiolibros en castellano (España) a partir de EPUBs. Resultado en M4B con capítulos para Apple Books/iPhone.
 
-1. **Entrenar el modelo de voz** — aprender cómo suena una voz concreta (se hace en la nube, una vez por narrador)
-2. **Generar el audiolibro** — convertir epub a audio con esa voz (se hace en local, sin límites)
+```
+EPUB → texto por capítulos/párrafos → Edge TTS (es-ES-AlvaroNeural) → M4B
+```
+
+Servidor Flask que corre en un mini PC con Ubuntu. Accedes desde cualquier navegador de la red local, arrastras el EPUB y descargas el M4B. El nombre del fichero se toma del metadata del libro.
 
 ---
 
-## Herramientas y por qué las usamos
+## Componentes
 
-### Google Colab + Applio — solo para entrenar
-Entrenar un modelo RVC requiere GPU. En un Mac M1 Pro, el MPS (GPU Metal) de PyTorch tiene muchas operaciones no soportadas que caen al CPU, haciendo el entrenamiento RVC ~180x más lento que en una GPU real — días en vez de minutos.
+### Edge TTS — voz neural en castellano
+Usa las voces Azure Neural Voices de Microsoft. La voz `es-ES-AlvaroNeural` es castellano de España, masculina, prácticamente indistinguible de una voz humana profesional. La API es gratuita y no tiene límites prácticos. Es la misma que usa el modo "leer en voz alta" del navegador Edge.
 
-Google Colab proporciona una GPU Tesla T4 gratuita en la nube. Applio es la herramienta con interfaz web que corre sobre Colab para gestionar el proceso de entrenamiento. Juntos entrenan el modelo en 30-40 minutos.
+**Requiere internet** — es lo único que requiere conexión.
 
-Una vez terminado el entrenamiento, el archivo `.pth` se descarga y Colab ya no se necesita más para esa voz.
-
-- URL de Colab: `colab.research.google.com`
-- GPU gratuita: Tesla T4 (14 GB)
-- Las sesiones expiran tras unas horas de inactividad — activa la sincronización con Google Drive para guardar el modelo automáticamente
-- Si el límite de GPU gratuito está agotado, espera un rato y vuelve a intentarlo
-
-### RVC (Retrieval-based Voice Conversion)
-Tecnología de IA que convierte el timbre de una voz a otra. Gratuito y open source.
-- **Entrenamiento** (en Colab): aprende una voz a partir de 10-20 min de audio limpio, produce un archivo `.pth`
-- **Inferencia** (en local): convierte cualquier audio para que suene como esa voz — rápido en CPU, sin límites, sin internet
-
-### Piper TTS — para el acento castellano
-Otros motores TTS como XTTSv2 clonan el timbre de voz pero generan acento latinoamericano independientemente de la voz de referencia. Piper TTS tiene un modelo nativo de español de España (`es_ES`) que garantiza el acento correcto.
-
-Piper genera el audio base en castellano y luego RVC lo transforma para que suene como el narrador objetivo.
+### ffmpeg — montaje del audiolibro
+Junta los WAVs de cada párrafo, los concatena con silencios de 400 ms, y empaqueta todo como M4B con marcadores de capítulo. M4B es el formato de audiolibro de Apple: guarda la posición de reproducción y muestra los capítulos en Apple Books/iPhone.
 
 ---
 
-## Fase 1: Preparar el dataset de audio
+## Servidor local
 
-### Obtener el audio
-Busca grabaciones donde la persona hable sola (sin música ni otras voces). Buenas fuentes:
-- Muestras de audiolibros en Audible
-- Entrevistas en YouTube (descargar con `yt-dlp`)
-- Podcasts, documentales, doblajes
+### Hardware
+Mini PC NiPoGi con Ryzen 7 5700U, 32 GB RAM, sin GPU. Ubuntu Server. Acceso desde el Mac u otros dispositivos por interfaz web en red local.
 
-Para capturar audio del sistema en Mac sin ruido de micrófono, instala **BlackHole**:
-```bash
-brew install blackhole-2ch
-```
-- Preferencias del Sistema → Sonido → seleccionar BlackHole como salida
-- Grabar con QuickTime usando BlackHole como entrada
-- Captura el audio digital directamente, sin pasar por el micrófono
-
-### Extraer audio de vídeos
-```bash
-# Instalar ffmpeg si no está disponible
-brew install ffmpeg
-
-# Extraer audio como WAV mono (formato para RVC)
-ffmpeg -i video.mp4 -vn -acodec pcm_s16le -ar 44100 -ac 1 audio.wav
-```
-
-### Procesar varios vídeos a la vez
-```bash
-# Desde la carpeta que contiene los vídeos
-mkdir -p ../audio
-
-for f in *; do
-  name=$(basename "${f%.*}")
-  ffmpeg -y -i "$f" -vn -acodec pcm_s16le -ar 44100 -ac 1 "../audio/${name}.wav"
-done
-
-# Concatenar todos en un único archivo
-cd ../audio
-ls *.wav | sort | awk '{print "file \047" $0 "\047"}' > concat.txt
-ffmpeg -y -f concat -safe 0 -i concat.txt -c copy ../es-male-01.wav
-rm concat.txt
-```
-
-**Resultado**: un único `es-male-01.wav` con todo el audio concatenado
-
-### Requisitos del dataset
-- Mínimo 5-10 minutos (10-20 recomendado)
-- Audio limpio: sin música, sin ruido de fondo, sin otras voces
-- Variedad: mejor usar varias grabaciones distintas que una sola repetida
-- Formato: WAV, mono, 44100 Hz
-
-### Convención de nombres
-```
-es-male-01    → español, masculino, primero
-es-female-01  → español, femenino, primero
-en-male-01    → inglés, masculino, primero
-```
-
----
-
-## Fase 2: Entrenar el modelo en Google Colab
-
-### Abrir el notebook
-1. Ir a `colab.research.google.com`
-2. Archivo → Abrir notebook → GitHub
-3. Buscar `javigmdev/audiobook-pipeline`
-4. Abrir `colab/Applio.ipynb`
-5. **Cambiar a runtime con GPU**: Runtime → Cambiar tipo de entorno de ejecución → T4 GPU
-
-### Ejecutar las celdas en orden
-1. **Setup Runtime Environment** — prepara el entorno
-2. **Install Applio** (2 celdas ocultas) — instala todo (~2-3 min)
-3. **Sync with Google Drive** — aceptar el permiso. Guarda el modelo automáticamente en Google Drive al terminar el entrenamiento
-4. **Start server** (method: gradio) — lanza la interfaz web
-
-### Subir el dataset
-1. En el panel izquierdo de Colab hacer clic en el **icono de carpeta**
-2. Navegar a `Applio → assets → datasets`
-3. Crear una carpeta con el nombre de la voz (ej. `es-male-01`)
-4. Arrastrar el archivo `es-male-01.wav` dentro de esa carpeta
-
-### Configurar y entrenar en Applio
-Abrir el enlace público que aparece al ejecutar Start server e ir a la pestaña **Training**:
-
-**Model Settings:**
-- Model Name: nombre de la voz (ej. `es-male-01`)
-- Sampling Rate: `40000`
-- Vocoder: `HiFi-GAN`
-
-**Preprocess:**
-- Dataset Path: `/content/Applio/assets/datasets/es-male-01` — esta es la **carpeta**, no el archivo wav
-- Clic en **Preprocess Dataset** → esperar "preprocessed successfully"
-
-**Extract:**
-- Pitch: `rmvpe`
-- Embedder: `contentvec`
-- Clic en **Extract Features** → esperar "extracted successfully"
-
-**Training:**
-- Batch Size: `8`
-- Total Epoch: `200`
-- Save Every Epoch: `10`
-- Marcar **I agree to the terms of use**
-- Clic en **Start Training** → esperar ~30-40 minutos
-
-### Descargar el modelo
-Cuando aparezca "trained successfully":
-1. En Applio bajar hasta **Export Model**
-2. Clic en **Refresh** y seleccionar el modelo en los desplegables **Pth file** e **Index File**
-3. Descargar ambos archivos
-4. Guardarlos en `modelos/` como `es-male-01.pth` y `es-male-01.index`
-
-**Si la sesión expira:** el modelo está guardado en Google Drive en `ApplioExported/` — descargarlo desde ahí.
-
----
-
-## Fase 3: Generar audiolibros
-
-El pipeline toma un epub y devuelve un M4B con capítulos:
-```
-EPUB → texto → Piper TTS (castellano) → RVC (es-male-01.pth) → M4B con capítulos
-```
-**M4B**: formato de audiolibro Apple. Guarda la posición de reproducción y muestra los capítulos en Apple Books/iPhone.
-
-Hay dos opciones para ejecutarlo:
-
----
-
-### Opción A — Servidor local (recomendado)
-
-Mini PC Ubuntu con Ryzen 7 5700U. Linux x86_64 nativo: resuelve el segfault de Apple Silicon y elimina la dependencia de Colab.
-
-#### Puesta en marcha (una sola vez)
+### Instalación
 
 ```bash
-cd server
+git clone https://github.com/javigmdev/audiobook-pipeline.git ~/apps/audiobook
+cd ~/apps/audiobook/server
 bash setup.sh
-
-# Copiar los modelos RVC entrenados
-cp /ruta/a/es-male-01.pth    server/models/es-male-01.pth
-cp /ruta/a/es-male-01.index  server/models/es-male-01.index
 ```
 
-#### Uso diario
+El script instala ffmpeg, crea un virtualenv, instala las dependencias y abre el puerto 5000 en el firewall.
+
+### Uso
 
 ```bash
-source server/venv/bin/activate
-python server/app.py
+cd ~/apps/audiobook/server
+source venv/bin/activate
+python app.py
 ```
 
-Abrir `http://<ip-del-servidor>:5000` desde cualquier navegador de la red local. Arrastra el epub, pulsa Convertir, espera (muestra progreso en tiempo real) y descarga el M4B.
+Accede desde el navegador en `http://<ip-del-servidor>:5000`. Arrastra un EPUB, pulsa Convertir, espera (el progreso aparece en tiempo real) y descarga el M4B.
 
 ---
 
-### Opción B — Google Colab (fallback)
+## Cómo escucharlo en iPhone
 
-Útil si el servidor está apagado. Requiere GPU T4 en Colab y los modelos en Google Drive.
+1. Descarga el M4B en el Mac
+2. Ábrelo — Apple Books lo importa automáticamente
+3. Sincroniza vía iCloud, o pásalo al iPhone con AirDrop
 
-#### Requisitos previos
-- Los archivos `es-male-01.pth` y `es-male-01.index` subidos a Google Drive en `MyDrive/audiobook-models/`
-- Un epub para convertir
-
-#### Abrir el notebook
-1. Ir a `colab.research.google.com`
-2. Archivo → Abrir notebook → GitHub → `javigmdev/audiobook-pipeline`
-3. Abrir `colab/Audiobook.ipynb`
-4. **Cambiar a runtime con GPU**: Runtime → Cambiar tipo de entorno de ejecución → T4 GPU
-
-#### Ejecutar
-1. **Celda 1** — instalar dependencias (~2-3 min)
-2. **Celda 2** — descargar modelos auxiliares (~1 min)
-3. **Celda 3** — conectar Google Drive
-4. Subir el epub al panel de archivos de Colab como `libro.epub`
-5. **Celda 4** — verificar rutas
-6. **Celda 5** — generar (procesa capítulo a capítulo)
-7. **Celda 6** — descargar el M4B
+Apple Books guarda la posición de reproducción y permite navegar por capítulos.
 
 ---
 
-### Por qué no funciona en Mac
+## Historia: por qué Edge TTS y no RVC
 
-- **Mac M1 con virtualenv**: la inferencia RVC produce segfault consistente en Apple Silicon al cargar el modelo HuBERT. Bug conocido de PyTorch en M1.
-- **Docker x86 en Mac**: evita el segfault pero la emulación QEMU vía Rosetta es ~100x más lenta. Un audiolibro entero tardaría días. Inviable.
+El proyecto empezó usando un enfoque más complejo: **Piper TTS** (modelo nativo castellano) + **RVC** (Retrieval-based Voice Conversion) entrenado con la voz de Jordi Boixaderas. Funcionaba pero el resultado sonaba robotizado o con artefactos del RVC.
+
+Edge TTS Alvaro es de calidad muy superior y no requiere modelo entrenado. La única ventaja del enfoque anterior era que funcionaba sin internet, pero el resultado no era natural.
+
+El material de RVC se conserva en el repo (`colab/`, `datasets/`, `modelos/`) por si en algún momento se quiere volver a ese enfoque.
+
+### Lo que no funcionó
+
+- **XTTSv2 / ebook2audiobook**: clona voces a partir de pocos segundos, pero genera acento latinoamericano siempre. Descartado por requisito de castellano.
+- **Inferencia RVC local en Mac M1**: segfault al cargar el modelo HuBERT. Bug de PyTorch en Apple Silicon.
+- **RVC en Docker x86_64 sobre Rosetta**: funciona pero la emulación QEMU es ~100x más lenta. Un audiolibro tardaría días.
 
 ---
 
@@ -222,24 +79,23 @@ Abrir `http://<ip-del-servidor>:5000` desde cualquier navegador de la red local.
 
 ```
 audiobook-pipeline/
-├── .gitignore
-├── .gitattributes              → config Git LFS para archivos wav
 ├── README.md
-├── colab/
-│   ├── Applio.ipynb            → notebook para entrenar la voz (Fase 2)
-│   └── Audiobook.ipynb         → notebook para generar audiolibros (Fase 3, opción Colab)
-├── server/                     → servidor local Flask (Fase 3, opción local)
-│   ├── app.py                  → app web
+├── CLAUDE.md
+├── .gitignore
+├── .gitattributes              → config Git LFS para el WAV del dataset
+├── server/                     → pipeline actual (Edge TTS)
+│   ├── app.py                  → app Flask
 │   ├── pipeline.py             → lógica de conversión
-│   ├── setup.sh                → instalación en Ubuntu (ejecutar una sola vez)
+│   ├── setup.sh                → instalación en Ubuntu
 │   ├── requirements.txt
 │   └── templates/index.html
-├── datasets/
-│   └── es-male-01/             → wav rastreado via Git LFS, resto ignorado
-│       ├── raw/                → vídeos originales (ignorado)
-│       ├── audio/              → WAVs individuales extraídos (ignorado)
-│       └── es-male-01.wav      → dataset completo (Git LFS)
-└── modelos/                    → ignorado por git (archivos .pth)
+├── colab/                      → pipeline antiguo RVC (conservado)
+│   ├── Applio.ipynb            → entrenamiento RVC en Colab
+│   └── Audiobook.ipynb         → inferencia Piper+RVC en Colab
+├── datasets/                   → dataset de entrenamiento RVC
+│   └── es-male-01/
+│       └── es-male-01.wav      → Git LFS
+└── modelos/                    → modelos RVC entrenados (gitignored)
     ├── es-male-01.pth
     └── es-male-01.index
 ```

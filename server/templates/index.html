@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ebook2audio</title>
+  <title>Audiobook Converter</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect x='8' y='10' width='30' height='44' rx='3' fill='%230066ee'/><line x1='14' y1='20' x2='32' y2='20' stroke='white' stroke-width='2.5' stroke-linecap='round'/><line x1='14' y1='28' x2='32' y2='28' stroke='white' stroke-width='2.5' stroke-linecap='round'/><line x1='14' y1='36' x2='28' y2='36' stroke='white' stroke-width='2.5' stroke-linecap='round'/><path d='M 44 22 Q 50 32 44 42' stroke='%230066ee' stroke-width='3.5' fill='none' stroke-linecap='round'/><path d='M 52 17 Q 60 32 52 47' stroke='%230066ee' stroke-width='3.5' fill='none' stroke-linecap='round'/></svg>">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -25,6 +26,18 @@
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
     h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 1.5rem; }
+    .field { margin-bottom: 1rem; }
+    .label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 0.4rem; font-weight: 500; }
+    select {
+      width: 100%;
+      padding: 0.65rem 0.75rem;
+      font-size: 0.95rem;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      background: white;
+      cursor: pointer;
+    }
+    select:focus { outline: none; border-color: #0066ee; }
     .drop {
       border: 2px dashed #ccc;
       border-radius: 8px;
@@ -89,7 +102,16 @@
 </head>
 <body>
   <div class="card">
-    <h1>ebook2audio</h1>
+    <h1>Audiobook Converter</h1>
+
+    <div class="field">
+      <label class="label" for="voice">Voz</label>
+      <select id="voice">
+        <option value="es-ES-AlvaroNeural">Alvaro — masculino, castellano (España)</option>
+        <option value="es-ES-ElviraNeural">Elvira — femenino, castellano (España)</option>
+        <option value="es-MX-XimenaNeural">Ximena — femenino, español (México)</option>
+      </select>
+    </div>
 
     <div class="drop" id="drop">
       <div class="drop-icon">📖</div>
@@ -162,6 +184,7 @@
 
       const fd = new FormData();
       fd.append('epub', file);
+      fd.append('voice', document.getElementById('voice').value);
 
       let res;
       try {

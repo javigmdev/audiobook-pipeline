@@ -30,6 +30,8 @@ def convert():
     if not _busy.acquire(blocking=False):
         return jsonify({'error': 'Ya hay una conversión en curso. Espera a que termine.'}), 409
 
+    voice = request.form.get('voice', 'es-ES-AlvaroNeural')
+
     job_id = str(uuid.uuid4())[:8]
     epub_path = UPLOAD_DIR / f'{job_id}.epub'
     output_path = OUTPUT_DIR / f'{job_id}.m4b'
@@ -41,7 +43,7 @@ def convert():
         try:
             def on_progress(msg):
                 _jobs[job_id]['messages'].append(msg)
-            generate_audiobook(str(epub_path), str(output_path), on_progress)
+            generate_audiobook(str(epub_path), str(output_path), on_progress, voice=voice)
             _jobs[job_id]['status'] = 'done'
         except Exception as e:
             _jobs[job_id]['status'] = 'error'

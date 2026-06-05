@@ -4,7 +4,7 @@ from pathlib import Path
 import edge_tts
 
 BASE_DIR = Path(__file__).parent
-EDGE_VOICE = 'es-ES-AlvaroNeural'
+DEFAULT_VOICE = 'es-ES-AlvaroNeural'
 
 
 def get_book_title(epub_path):
@@ -46,14 +46,14 @@ def extract_chapters(epub_path):
     return chapters
 
 
-async def _edge_save(text, mp3_path):
-    communicate = edge_tts.Communicate(text, EDGE_VOICE)
+async def _edge_save(text, mp3_path, voice):
+    communicate = edge_tts.Communicate(text, voice)
     await communicate.save(str(mp3_path))
 
 
-def tts(text, wav_path):
+def tts(text, wav_path, voice=DEFAULT_VOICE):
     mp3_path = wav_path.with_suffix('.mp3')
-    asyncio.run(_edge_save(text, mp3_path))
+    asyncio.run(_edge_save(text, mp3_path, voice))
     subprocess.run(
         ['ffmpeg', '-y', '-i', str(mp3_path),
          '-acodec', 'pcm_s16le', '-ar', '24000', '-ac', '1', str(wav_path)],
@@ -78,14 +78,14 @@ def _wav_duration_ms(path):
         return int(f.getnframes() / f.getframerate() * 1000)
 
 
-def generate_audiobook(epub_path, output_path, progress=None):
+def generate_audiobook(epub_path, output_path, progress=None, voice=DEFAULT_VOICE):
     def log(msg):
         if progress:
             progress(msg)
         print(msg, flush=True)
 
     chapters = extract_chapters(epub_path)
-    log(f'{len(chapters)} capítulos detectados')
+    log(f'{len(chapters)} capítulos detectados (voz: {voice})')
 
     tmp = Path(tempfile.mkdtemp())
     chapter_wavs = []
@@ -97,7 +97,7 @@ def generate_audiobook(epub_path, output_path, progress=None):
             para_wavs = []
             for j, para in enumerate(paragraphs):
                 pwav = tmp / f'tts_{i:03d}_{j:03d}.wav'
-                tts(para, pwav)
+                tts(para, pwav, voice=voice)
                 para_wavs.append(pwav)
 
             silence = tmp / 'silence.wav'
