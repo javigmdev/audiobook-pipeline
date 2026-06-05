@@ -12,6 +12,14 @@ modelos/*.index
 # Audiolibros generados
 audiobooks/
 
+# Servidor local
+server/Applio/
+server/venv/
+server/piper_model/
+server/models/
+server/uploads/
+server/outputs/
+
 # Sistema
 .DS_Store
 __pycache__/
