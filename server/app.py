@@ -2,7 +2,7 @@ import threading, uuid, time
 from pathlib import Path
 from flask import Flask, request, render_template, Response, send_file, jsonify
 
-from pipeline import generate_audiobook
+from pipeline import generate_audiobook, get_book_title
 
 app = Flask(__name__)
 BASE_DIR = Path(__file__).parent
@@ -34,7 +34,8 @@ def convert():
     epub_path = UPLOAD_DIR / f'{job_id}.epub'
     output_path = OUTPUT_DIR / f'{job_id}.m4b'
     f.save(str(epub_path))
-    _jobs[job_id] = {'status': 'running', 'messages': [], 'output': str(output_path)}
+    title = get_book_title(str(epub_path))
+    _jobs[job_id] = {'status': 'running', 'messages': [], 'output': str(output_path), 'title': title}
 
     def run():
         try:
@@ -85,7 +86,8 @@ def download(job_id):
     job = _jobs.get(job_id)
     if not job or job['status'] != 'done':
         return 'No disponible', 404
-    return send_file(job['output'], as_attachment=True, download_name='audiolibro.m4b')
+    filename = f"{job.get('title', 'audiolibro')}.m4b"
+    return send_file(job['output'], as_attachment=True, download_name=filename)
 
 
 if __name__ == '__main__':

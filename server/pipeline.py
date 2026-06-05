@@ -3,7 +3,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
 APPLIO_DIR = BASE_DIR / 'Applio'
-PIPER_MODEL = BASE_DIR / 'piper_model' / 'es_ES-davefx-medium.onnx'
+PIPER_MODEL = BASE_DIR / 'piper_model' / 'es_ES-sharvard-medium.onnx'
 MODEL_PTH = BASE_DIR / 'models' / 'es-male-01.pth'
 MODEL_INDEX = BASE_DIR / 'models' / 'es-male-01.index'
 
@@ -13,6 +13,17 @@ sys.path.insert(0, str(APPLIO_DIR))
 
 from rvc.infer.infer import VoiceConverter
 _vc = VoiceConverter()
+
+
+def get_book_title(epub_path):
+    from ebooklib import epub
+    book = epub.read_epub(epub_path)
+    meta = book.get_metadata('DC', 'title')
+    if meta:
+        title = meta[0][0].strip()
+        # Limpiar caracteres no válidos en nombres de fichero
+        return re.sub(r'[<>:"/\\|?*]', '', title) or 'audiolibro'
+    return 'audiolibro'
 
 
 def extract_chapters(epub_path):
@@ -28,9 +39,20 @@ def extract_chapters(epub_path):
             tag.decompose()
         title_tag = soup.find(['h1', 'h2'])
         title = title_tag.get_text(strip=True) if title_tag else f'Capítulo {len(chapters) + 1}'
-        text = re.sub(r'\s+', ' ', soup.get_text(separator=' ', strip=True)).strip()
-        if len(text) > 100:
-            chapters.append((title, text))
+
+        paragraphs = [
+            re.sub(r'\s+', ' ', p.get_text(strip=True)).strip()
+            for p in soup.find_all('p')
+            if len(p.get_text(strip=True)) > 20
+        ]
+        if not paragraphs:
+            # fallback para EPUBs sin etiquetas <p>
+            full = re.sub(r'\s+', ' ', soup.get_text(separator=' ', strip=True)).strip()
+            if len(full) > 100:
+                paragraphs = [full]
+
+        if paragraphs:
+            chapters.append((title, paragraphs))
     return chapters
 
 
@@ -49,11 +71,22 @@ def rvc_convert(input_wav, output_wav):
         audio_output_path=str(output_wav),
         model_path=str(MODEL_PTH),
         index_path=str(MODEL_INDEX) if MODEL_INDEX.exists() else '',
-        pitch=0, f0_method='rmvpe', index_rate=0.75, hop_length=128,
+        pitch=0, f0_method='rmvpe', index_rate=0.88, hop_length=128,
         split_audio=False, autotune=False, clean_audio=False, clean_strength=0.7,
         export_format='WAV', embedder_model='contentvec', embedder_model_custom=None,
         upscale_audio=False, resample_sr=0, post_process=False,
     )
+
+
+def _make_silence(path, reference_wav, duration_ms=400):
+    with wave.open(str(reference_wav), 'r') as ref:
+        sr, ch, sw = ref.getframerate(), ref.getnchannels(), ref.getsampwidth()
+    n_frames = int(sr * duration_ms / 1000)
+    with wave.open(str(path), 'w') as f:
+        f.setnchannels(ch)
+        f.setsampwidth(sw)
+        f.setframerate(sr)
+        f.writeframes(b'\x00' * sw * ch * n_frames)
 
 
 def _wav_duration_ms(path):
@@ -74,12 +107,33 @@ def generate_audiobook(epub_path, output_path, progress=None):
     rvc_wavs = []
 
     try:
-        for i, (title, text) in enumerate(chapters):
-            log(f'[{i + 1}/{len(chapters)}] {title[:60]}')
-            pwav = tmp / f'piper_{i:03d}.wav'
+        for i, (title, paragraphs) in enumerate(chapters):
+            log(f'[{i + 1}/{len(chapters)}] {title[:60]} ({len(paragraphs)} párrafos)')
+
+            para_wavs = []
+            for j, para in enumerate(paragraphs):
+                pwav = tmp / f'piper_{i:03d}_{j:03d}.wav'
+                piper_tts(para, pwav)
+                para_wavs.append(pwav)
+
+            silence = tmp / 'silence.wav'
+            _make_silence(silence, para_wavs[0])
+
+            chapter_list = tmp / f'chapter_list_{i:03d}.txt'
+            with open(chapter_list, 'w') as f:
+                for k, pw in enumerate(para_wavs):
+                    f.write(f"file '{pw}'\n")
+                    if k < len(para_wavs) - 1:
+                        f.write(f"file '{silence}'\n")
+
+            chapter_wav = tmp / f'chapter_{i:03d}.wav'
+            subprocess.run(
+                ['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', str(chapter_list), '-c', 'copy', str(chapter_wav)],
+                check=True, capture_output=True,
+            )
+
             rwav = tmp / f'rvc_{i:03d}.wav'
-            piper_tts(text, pwav)
-            rvc_convert(pwav, rwav)
+            rvc_convert(chapter_wav, rwav)
             rvc_wavs.append(rwav)
 
         log('Uniendo capítulos...')

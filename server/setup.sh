@@ -60,10 +60,10 @@ _dl "$DIR/Applio/rvc/models/predictors/fcpe.pt" \
 
 echo "=== [5/6] Descargando modelo Piper TTS (es_ES-davefx-medium) ==="
 mkdir -p "$DIR/piper_model"
-_dl "$DIR/piper_model/es_ES-davefx-medium.onnx" \
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx"
-_dl "$DIR/piper_model/es_ES-davefx-medium.onnx.json" \
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx.json"
+_dl "$DIR/piper_model/es_ES-sharvard-medium.onnx" \
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx"
+_dl "$DIR/piper_model/es_ES-sharvard-medium.onnx.json" \
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx.json"
 
 echo "=== [6/6] Preparando directorio de modelos RVC ==="
 mkdir -p "$DIR/models"
