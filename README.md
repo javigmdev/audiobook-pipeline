@@ -47,6 +47,20 @@ python app.py
 
 Accede desde el navegador en `http://<ip-del-servidor>:5000`. Arrastra un EPUB, pulsa Convertir, espera (el progreso aparece en tiempo real) y descarga el M4B.
 
+### Actualizar el servidor tras nuevos cambios
+
+Tras hacer `git push` desde el Mac:
+
+```bash
+cd ~/apps/audiobook
+# Parar el servidor (Ctrl+C en la terminal donde corre)
+git pull
+source server/venv/bin/activate
+# Si requirements.txt ha cambiado:
+pip install -r server/requirements.txt
+python server/app.py
+```
+
 ---
 
 ## Cómo escucharlo en iPhone

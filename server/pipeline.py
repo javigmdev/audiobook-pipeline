@@ -7,6 +7,29 @@ BASE_DIR = Path(__file__).parent
 DEFAULT_VOICE = 'es-ES-AlvaroNeural'
 
 
+def get_cover_image(epub_path, tmp_dir):
+    import ebooklib
+    from ebooklib import epub
+    book = epub.read_epub(epub_path)
+
+    # Buscar por propiedad cover-image en el manifiesto
+    for item in book.get_items_of_type(ebooklib.ITEM_IMAGE):
+        if 'cover' in item.get_name().lower() or getattr(item, 'properties', '') == 'cover-image':
+            ext = item.get_name().rsplit('.', 1)[-1].lower() or 'jpg'
+            cover_path = Path(tmp_dir) / f'cover.{ext}'
+            cover_path.write_bytes(item.get_content())
+            return cover_path
+
+    # Fallback: primera imagen del libro
+    for item in book.get_items_of_type(ebooklib.ITEM_IMAGE):
+        ext = item.get_name().rsplit('.', 1)[-1].lower() or 'jpg'
+        cover_path = Path(tmp_dir) / f'cover.{ext}'
+        cover_path.write_bytes(item.get_content())
+        return cover_path
+
+    return None
+
+
 def get_book_title(epub_path):
     from ebooklib import epub
     book = epub.read_epub(epub_path)
@@ -140,12 +163,24 @@ def generate_audiobook(epub_path, output_path, progress=None, voice=DEFAULT_VOIC
                 f.write(f'\n[CHAPTER]\nTIMEBASE=1/1000\nSTART={pos}\nEND={pos + dur}\ntitle={title}\n')
                 pos += dur
 
-        subprocess.run(
-            ['ffmpeg', '-y', '-i', str(combined), '-i', str(meta),
-             '-map_metadata', '1', '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart',
-             str(output_path)],
-            check=True, capture_output=True,
-        )
+        cover = get_cover_image(epub_path, tmp)
+        if cover:
+            cmd = [
+                'ffmpeg', '-y',
+                '-i', str(combined), '-i', str(meta), '-i', str(cover),
+                '-map', '0:a', '-map', '2:v', '-map_metadata', '1',
+                '-c:a', 'aac', '-b:a', '64k',
+                '-c:v', 'copy', '-disposition:v', 'attached_pic',
+                '-movflags', '+faststart', str(output_path),
+            ]
+        else:
+            cmd = [
+                'ffmpeg', '-y',
+                '-i', str(combined), '-i', str(meta),
+                '-map_metadata', '1', '-c:a', 'aac', '-b:a', '64k',
+                '-movflags', '+faststart', str(output_path),
+            ]
+        subprocess.run(cmd, check=True, capture_output=True)
 
         log(f'Listo: {output_path}')
 
