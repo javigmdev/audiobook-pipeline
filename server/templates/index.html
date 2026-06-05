@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ebook2audio</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f0f0f0;
+      color: #1a1a1a;
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 3rem 1rem;
+    }
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 600px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 1.5rem; }
+    .drop {
+      border: 2px dashed #ccc;
+      border-radius: 8px;
+      padding: 2.5rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .drop:hover, .drop.over { border-color: #0066ee; background: #f0f6ff; }
+    .drop input { display: none; }
+    .drop-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+    .drop-hint { color: #555; font-size: 0.9rem; }
+    .filename { margin-top: 0.6rem; font-size: 0.85rem; color: #0066ee; font-weight: 500; }
+    .btn {
+      display: block; width: 100%; margin-top: 1rem;
+      padding: 0.8rem; font-size: 1rem; font-weight: 500;
+      background: #0066ee; color: white;
+      border: none; border-radius: 8px; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn:hover:not(:disabled) { background: #0052cc; }
+    .btn:disabled { background: #aaa; cursor: not-allowed; }
+    .log {
+      display: none;
+      margin-top: 1.5rem;
+      background: #111;
+      color: #d4d4d4;
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: 'Courier New', monospace;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      height: 260px;
+      overflow-y: auto;
+    }
+    .log p { margin: 0; white-space: pre-wrap; word-break: break-word; }
+    .log p.err { color: #f88; }
+    .dl {
+      display: none;
+      margin-top: 1rem;
+      padding: 0.8rem;
+      background: #107a3a;
+      color: white;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 500;
+      text-align: center;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .dl:hover { background: #0d6130; }
+    .notice {
+      display: none;
+      margin-top: 0.75rem;
+      padding: 0.6rem 0.8rem;
+      background: #fff3cd;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      color: #7a5a00;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>ebook2audio</h1>
+
+    <div class="drop" id="drop">
+      <div class="drop-icon">📖</div>
+      <div class="drop-hint">Arrastra un EPUB aquí o haz clic para seleccionar</div>
+      <div class="filename" id="fname"></div>
+      <input type="file" id="file" accept=".epub">
+    </div>
+
+    <div class="notice" id="notice"></div>
+    <button class="btn" id="btn" disabled>Convertir a M4B</button>
+    <div class="log" id="log"></div>
+    <a class="dl" id="dl">Descargar audiolibro (.m4b)</a>
+  </div>
+
+  <script>
+    const drop = document.getElementById('drop');
+    const fileInput = document.getElementById('file');
+    const fname = document.getElementById('fname');
+    const btn = document.getElementById('btn');
+    const logEl = document.getElementById('log');
+    const dlBtn = document.getElementById('dl');
+    const notice = document.getElementById('notice');
+    let file = null;
+
+    drop.addEventListener('click', () => fileInput.click());
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+    drop.addEventListener('drop', e => {
+      e.preventDefault();
+      drop.classList.remove('over');
+      const f = e.dataTransfer.files[0];
+      if (f) setFile(f);
+    });
+    fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+
+    function setFile(f) {
+      if (!f.name.toLowerCase().endsWith('.epub')) {
+        showNotice('Solo se aceptan archivos .epub', 'warn');
+        return;
+      }
+      file = f;
+      fname.textContent = f.name;
+      btn.disabled = false;
+      hideNotice();
+    }
+
+    function logLine(text, isErr) {
+      const p = document.createElement('p');
+      if (isErr) p.className = 'err';
+      p.textContent = text;
+      logEl.appendChild(p);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function showNotice(msg, type) {
+      notice.textContent = msg;
+      notice.style.background = type === 'warn' ? '#fff3cd' : '#fde8e8';
+      notice.style.color = type === 'warn' ? '#7a5a00' : '#9b1c1c';
+      notice.style.display = 'block';
+    }
+    function hideNotice() { notice.style.display = 'none'; }
+
+    btn.addEventListener('click', async () => {
+      if (!file) return;
+      btn.disabled = true;
+      dlBtn.style.display = 'none';
+      logEl.style.display = 'block';
+      logEl.innerHTML = '';
+      hideNotice();
+
+      const fd = new FormData();
+      fd.append('epub', file);
+
+      let res;
+      try {
+        res = await fetch('/convert', { method: 'POST', body: fd });
+      } catch (e) {
+        showNotice('Error de red al conectar con el servidor.', 'err');
+        btn.disabled = false;
+        return;
+      }
+
+      const data = await res.json();
+      if (data.error) {
+        showNotice(data.error, 'err');
+        btn.disabled = false;
+        return;
+      }
+
+      const jobId = data.job_id;
+      const evtSrc = new EventSource(`/status/${jobId}`);
+
+      evtSrc.onmessage = e => {
+        if (e.data === 'DONE') {
+          evtSrc.close();
+          logLine('Conversión completada.');
+          dlBtn.href = `/download/${jobId}`;
+          dlBtn.style.display = 'block';
+          btn.disabled = false;
+        } else if (e.data.startsWith('ERROR:')) {
+          evtSrc.close();
+          logLine(e.data, true);
+          btn.disabled = false;
+        } else {
+          logLine(e.data);
+        }
+      };
+
+      evtSrc.onerror = () => {
+        evtSrc.close();
+        logLine('Conexión SSE interrumpida.', true);
+        btn.disabled = false;
+      };
+    });
+  </script>
+</body>
+</html>

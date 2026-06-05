@@ -29,8 +29,9 @@ Extraer 15-20 min de voz limpia del narrador (muestras de Audible, vídeos, podc
 ### Fase 2 — Entrenar el modelo (Colab + Applio)
 Notebook: `colab/Applio.ipynb`. Usa GPU T4 gratuita de Colab. El entrenamiento local en Mac M1 con MPS era ~180x más lento que la T4 (se intentó y se descartó). El modelo se guarda en `MyDrive/audiobook-models/` y localmente en `modelos/`.
 
-### Fase 3 — Generar audiolibros (Colab)
-Notebook: `colab/Audiobook.ipynb`. Toma un epub, lo trocea por capítulos con `ebooklib`, sintetiza cada capítulo con Piper TTS (modelo `es_ES-davefx-medium`) y aplica el modelo RVC entrenado. Junta los WAVs en un M4B con marcadores de capítulo via `ffmpeg`.
+### Fase 3 — Generar audiolibros
+**Opción A (Colab):** Notebook `colab/Audiobook.ipynb`.
+**Opción B (servidor local):** App Flask en `server/` — ver sección "Servidor local".
 
 ## Decisiones de herramientas
 
@@ -65,8 +66,8 @@ Tiene límites de uso (no es local). Descartado por requisito de "sin límites".
 
 - Modelo `es-male-01` (voz de Jordi Boixaderas) entrenado: 200 épocas, 11200 pasos, ~18 min de dataset
 - Modelo guardado en `modelos/es-male-01_200e_11200s.pth` y `modelos/es-male-01.index` (locales, también en `MyDrive/audiobook-models/`)
-- Notebook de inferencia listo: `colab/Audiobook.ipynb`
-- No hay app local — todo en Colab
+- Notebook de inferencia: `colab/Audiobook.ipynb`
+- Servidor local Flask: `server/` — para mini PC Ubuntu (Ryzen 7 5700U, CPU-only, sin GPU)
 
 ## Estructura del repo
 
@@ -78,12 +79,52 @@ Tiene límites de uso (no es local). Descartado por requisito de "sin límites".
 ├── .gitattributes              # config Git LFS
 ├── colab/
 │   ├── Applio.ipynb            # entrenamiento (Fase 2)
-│   └── Audiobook.ipynb         # generación (Fase 3)
+│   └── Audiobook.ipynb         # generación vía Colab (Fase 3)
+├── server/                     # servidor local Flask (Fase 3 alternativa)
+│   ├── app.py                  # app web Flask
+│   ├── pipeline.py             # lógica de conversión extraída del notebook
+│   ├── setup.sh                # instalación en Ubuntu (ejecutar una sola vez)
+│   ├── requirements.txt
+│   └── templates/index.html
 ├── datasets/
 │   └── es-male-01/
 │       └── es-male-01.wav      # dataset Git LFS
 └── modelos/                    # .pth y .index (gitignored)
 ```
+
+## Servidor local
+
+Mini PC NiPoGi (Ryzen 7 5700U, 32 GB RAM, Ubuntu, sin GPU). Resuelve el segfault de Apple Silicon y elimina la dependencia de Colab.
+
+### Puesta en marcha (una sola vez en el servidor)
+
+```bash
+# 1. Clonar el repo
+git clone <repo> ~/audiobook && cd ~/audiobook/server
+
+# 2. Instalar todo
+bash setup.sh
+
+# 3. Copiar los modelos RVC entrenados
+cp /ruta/a/es-male-01_200e_11200s.pth  server/models/es-male-01.pth
+cp /ruta/a/es-male-01.index            server/models/es-male-01.index
+```
+
+### Arrancar el servidor
+
+```bash
+cd server
+source venv/bin/activate
+python app.py
+```
+
+Acceder desde el Mac en `http://<ip-del-servidor>:5000`
+
+### Notas técnicas
+- `pipeline.py` hace `os.chdir(Applio/)` al importarse — necesario porque Applio usa rutas relativas internamente
+- `VoiceConverter` se instancia una sola vez al arrancar (la carga del modelo ocurre en `convert_audio`)
+- Un solo trabajo por vez (Semaphore); peticiones simultáneas reciben HTTP 409
+- SSE (`/status/<job_id>`) para progreso en tiempo real en el navegador
 
 ## Convenciones
 
@@ -97,5 +138,5 @@ Formato `[idioma]-[género]-[número]`:
 - Nombres de archivos, variables y funciones en **inglés** (decisión consciente del usuario para mantener consistencia con el código fuente)
 
 ## Cosas pendientes / posibles mejoras
-- Si en el futuro hay acceso a una máquina Linux x86 (VPS, PC con Linux), se puede recuperar del historial de git el código de la app local con Gradio que funcionaba salvo por el segfault de M1
 - Entrenar más voces (otras `es-male-XX`, `es-female-XX`)
+- Probar velocidad de inferencia CPU en el mini PC (Ryzen 7 5700U) para calibrar tiempo real por capítulo
