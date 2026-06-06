@@ -125,8 +125,10 @@ def generate_audiobook(epub_path, output_path, progress=None, voice=DEFAULT_VOIC
 
     book_title, book_author = get_book_metadata(epub_path)
     chapters = extract_chapters(epub_path)
-    log(f'{len(chapters)} capítulos detectados (voz: {voice})')
+    total_paragraphs = sum(len(p) for _, p in chapters)
+    log(f'{len(chapters)} capítulos detectados, {total_paragraphs} párrafos (voz: {voice})')
 
+    start_time = time.time()
     tmp = Path(tempfile.mkdtemp())
     chapter_wavs = []
 
@@ -206,7 +208,10 @@ def generate_audiobook(epub_path, output_path, progress=None, voice=DEFAULT_VOIC
             ] + meta_args + [str(output_path)]
         subprocess.run(cmd, check=True, capture_output=True)
 
+        elapsed = int(time.time() - start_time)
+        h, m, s = elapsed // 3600, (elapsed % 3600) // 60, elapsed % 60
         log(f'Listo: {output_path}')
+        log(f'Resumen: {len(chapters)} capítulos, {total_paragraphs} párrafos — {h:02d}:{m:02d}:{s:02d}')
 
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
