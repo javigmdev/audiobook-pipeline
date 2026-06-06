@@ -1,4 +1,4 @@
-import re, tempfile, subprocess, wave, shutil, asyncio
+import re, tempfile, subprocess, wave, shutil, asyncio, time
 from pathlib import Path
 
 import edge_tts
@@ -79,8 +79,15 @@ def extract_chapters(epub_path):
 
 
 async def _edge_save(text, mp3_path, voice):
-    communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(str(mp3_path))
+    for attempt in range(4):
+        try:
+            communicate = edge_tts.Communicate(text, voice)
+            await communicate.save(str(mp3_path))
+            return
+        except Exception:
+            if attempt == 3:
+                raise
+            await asyncio.sleep(3 ** attempt)
 
 
 def tts(text, wav_path, voice=DEFAULT_VOICE):
@@ -132,6 +139,8 @@ def generate_audiobook(epub_path, output_path, progress=None, voice=DEFAULT_VOIC
                 pwav = tmp / f'tts_{i:03d}_{j:03d}.wav'
                 tts(para, pwav, voice=voice)
                 para_wavs.append(pwav)
+                if j < len(paragraphs) - 1:
+                    time.sleep(0.5)
 
             silence = tmp / 'silence.wav'
             _make_silence(silence, para_wavs[0])

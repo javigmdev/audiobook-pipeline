@@ -53,12 +53,23 @@ Tras hacer `git push` desde el Mac:
 
 ```bash
 cd ~/apps/audiobook
-# Parar el servidor (Ctrl+C en la terminal donde corre)
 git pull
 source server/venv/bin/activate
 # Si requirements.txt ha cambiado:
 pip install -r server/requirements.txt
-python server/app.py
+sudo systemctl restart audiobook
+```
+
+Comprobar que ha arrancado bien:
+
+```bash
+sudo systemctl status audiobook
+```
+
+Ver logs en tiempo real:
+
+```bash
+sudo journalctl -u audiobook -f
 ```
 
 ---

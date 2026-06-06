@@ -35,15 +35,20 @@ La app debe escuchar en un puerto local (ej. 5001, 5002…). Asegúrate de que n
 ### 2. Añadir la ruta en nginx
 
 ```bash
-sudo nano /etc/nginx/sites-available/apps
+sudo nano /etc/nginx/sites-available/audiobookconverter
 ```
 
 Añade un bloque `location` dentro del `server` existente:
 
 ```nginx
+location = /<nombre-app> { return 301 /<nombre-app>/; }
+
 location /<nombre-app>/ {
     proxy_pass http://127.0.0.1:<puerto>/;
     proxy_set_header Host $host;
+    proxy_read_timeout 86400;
+    proxy_buffering off;
+    proxy_cache off;
 }
 
 location /<nombre-app>/static/ {
@@ -74,24 +79,32 @@ Accede en `http://javigmdev-server.local/<nombre-app>/`
 
 | Ruta | Puerto | Repo |
 |------|--------|------|
-| `/audiobook/` | 5000 | audiobook-pipeline |
+| `/audiobookconverter/` | 5000 | audiobook-pipeline |
 
 ---
 
 ## Config nginx completa
 
-El fichero de configuración está en `/etc/nginx/sites-available/apps`.
+El fichero está en `/etc/nginx/sites-available/audiobookconverter`.
 
-Ejemplo con varias apps:
+Config actual con todas las opciones:
 
 ```nginx
 server {
     listen 80;
     server_name javigmdev-server.local;
+    client_max_body_size 50M;
 
-    location /audiobook/ {
+    location = /audiobookconverter {
+        return 301 /audiobookconverter/;
+    }
+
+    location /audiobookconverter/ {
         proxy_pass http://127.0.0.1:5000/;
         proxy_set_header Host $host;
+        proxy_read_timeout 86400;
+        proxy_buffering off;
+        proxy_cache off;
     }
 
     location /static/ {
@@ -100,12 +113,20 @@ server {
     }
 
     # nueva-app
+    # location = /nueva-app { return 301 /nueva-app/; }
     # location /nueva-app/ {
     #     proxy_pass http://127.0.0.1:5001/;
     #     proxy_set_header Host $host;
+    #     proxy_read_timeout 86400;
+    #     proxy_buffering off;
+    #     proxy_cache off;
     # }
 }
 ```
+
+- `client_max_body_size 50M` — permite subir EPUBs grandes
+- `proxy_read_timeout 86400` — 24h, necesario para libros largos
+- `proxy_buffering off` — necesario para que el log SSE fluya en tiempo real
 
 ---
 
