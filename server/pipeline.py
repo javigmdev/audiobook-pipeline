@@ -117,7 +117,11 @@ def _wav_duration_ms(path):
         return int(f.getnframes() / f.getframerate() * 1000)
 
 
-def generate_audiobook(epub_path, output_path, progress=None, voice=DEFAULT_VOICE):
+class CancelledError(Exception):
+    pass
+
+
+def generate_audiobook(epub_path, output_path, progress=None, voice=DEFAULT_VOICE, cancel_check=None):
     def log(msg):
         if progress:
             progress(msg)
@@ -139,6 +143,8 @@ def generate_audiobook(epub_path, output_path, progress=None, voice=DEFAULT_VOIC
             para_wavs = []
             for j, para in enumerate(paragraphs):
                 pwav = tmp / f'tts_{i:03d}_{j:03d}.wav'
+                if cancel_check and cancel_check():
+                    raise CancelledError()
                 tts(para, pwav, voice=voice)
                 para_wavs.append(pwav)
                 if j < len(paragraphs) - 1:

@@ -145,6 +145,14 @@ select:focus {
   cursor: not-allowed;
 }
 
+.btn-cancel {
+  background: #ff3b30;
+  margin-top: 0.5rem;
+}
+.btn-cancel:hover:not(:disabled) {
+  background: #e0352a;
+}
+
 .log {
   display: none;
   margin-top: 1.5rem;

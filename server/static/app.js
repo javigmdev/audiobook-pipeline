@@ -2,10 +2,12 @@ const drop = document.getElementById('drop');
 const fileInput = document.getElementById('file');
 const fname = document.getElementById('fname');
 const btn = document.getElementById('btn');
+const cancelBtn = document.getElementById('cancel');
 const logEl = document.getElementById('log');
 const dlBtn = document.getElementById('dl');
 const notice = document.getElementById('notice');
 let file = null;
+let currentJobId = null;
 
 drop.addEventListener('click', () => fileInput.click());
 drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
@@ -49,9 +51,17 @@ function hideNotice() {
   notice.style.display = 'none';
 }
 
+cancelBtn.addEventListener('click', async () => {
+  if (!currentJobId) return;
+  cancelBtn.disabled = true;
+  await fetch(`cancel/${currentJobId}`, { method: 'POST' });
+});
+
 btn.addEventListener('click', async () => {
   if (!file) return;
   btn.disabled = true;
+  cancelBtn.style.display = 'block';
+  cancelBtn.disabled = false;
   dlBtn.style.display = 'none';
   logEl.style.display = 'block';
   logEl.innerHTML = '';
@@ -74,30 +84,37 @@ btn.addEventListener('click', async () => {
   if (data.error) {
     showNotice(data.error, 'err');
     btn.disabled = false;
+    cancelBtn.style.display = 'none';
     return;
   }
 
+  currentJobId = data.job_id;
   const evtSrc = new EventSource(`status/${data.job_id}`);
+
+  function finish() {
+    evtSrc.close();
+    btn.disabled = false;
+    cancelBtn.style.display = 'none';
+    cancelBtn.disabled = false;
+    currentJobId = null;
+  }
 
   evtSrc.onmessage = e => {
     if (e.data === 'DONE') {
-      evtSrc.close();
+      finish();
       logLine('Conversión completada.');
       dlBtn.href = `download/${data.job_id}`;
       dlBtn.style.display = 'block';
-      btn.disabled = false;
-    } else if (e.data.startsWith('ERROR:')) {
-      evtSrc.close();
+    } else if (e.data.startsWith('ERROR:') || e.data === 'CANCELLED') {
+      finish();
       logLine(e.data, true);
-      btn.disabled = false;
     } else {
       logLine(e.data);
     }
   };
 
   evtSrc.onerror = () => {
-    evtSrc.close();
+    finish();
     logLine('Conexión SSE interrumpida.', true);
-    btn.disabled = false;
   };
 });

@@ -1,0 +1,9 @@
+services:
+  audiobookconverter:
+    build: .
+    ports:
+      - "5001:5000"
+    volumes:
+      - ./outputs:/app/outputs
+      - /tmp/audiobookconverter:/tmp
+    restart: unless-stopped

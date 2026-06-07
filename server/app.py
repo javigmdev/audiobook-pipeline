@@ -2,7 +2,7 @@ import threading, uuid, time
 from pathlib import Path
 from flask import Flask, request, render_template, Response, send_file, jsonify
 
-from pipeline import generate_audiobook, get_book_title
+from pipeline import generate_audiobook, get_book_title, CancelledError
 
 app = Flask(__name__)
 BASE_DIR = Path(__file__).parent
@@ -37,23 +37,36 @@ def convert():
     output_path = OUTPUT_DIR / f'{job_id}.m4b'
     f.save(str(epub_path))
     title = get_book_title(str(epub_path))
-    _jobs[job_id] = {'status': 'running', 'messages': [], 'output': str(output_path), 'title': title}
+    _jobs[job_id] = {'status': 'running', 'messages': [], 'output': str(output_path), 'title': title, 'cancelled': False}
 
     def run():
         try:
             def on_progress(msg):
                 _jobs[job_id]['messages'].append(msg)
-            generate_audiobook(str(epub_path), str(output_path), on_progress, voice=voice)
+            generate_audiobook(str(epub_path), str(output_path), on_progress, voice=voice,
+                               cancel_check=lambda: _jobs[job_id]['cancelled'])
             _jobs[job_id]['status'] = 'done'
+        except CancelledError:
+            _jobs[job_id]['status'] = 'cancelled'
+            output_path.unlink(missing_ok=True)
         except Exception as e:
             _jobs[job_id]['status'] = 'error'
             _jobs[job_id]['error'] = str(e)
+            output_path.unlink(missing_ok=True)
         finally:
             epub_path.unlink(missing_ok=True)
             _busy.release()
 
     threading.Thread(target=run, daemon=True).start()
     return jsonify({'job_id': job_id})
+
+
+@app.route('/cancel/<job_id>', methods=['POST'])
+def cancel(job_id):
+    job = _jobs.get(job_id)
+    if job and job['status'] == 'running':
+        job['cancelled'] = True
+    return '', 204
 
 
 @app.route('/status/<job_id>')
@@ -70,6 +83,9 @@ def status(job_id):
                 sent += 1
             if job['status'] == 'done':
                 yield 'data: DONE\n\n'
+                return
+            if job['status'] == 'cancelled':
+                yield 'data: CANCELLED\n\n'
                 return
             if job['status'] == 'error':
                 yield f"data: ERROR: {job.get('error', 'desconocido')}\n\n"
